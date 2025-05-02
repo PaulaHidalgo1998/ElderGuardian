@@ -1,8 +1,11 @@
 # Imports
 import cv2
+import RPi.GPIO as GPIO
 from picamera2 import Picamera2
 from ultralytics import YOLO
 import time
+
+from mobile import robotMovements as rMove
 
 # Set up the camera with Picam
 picam2 = Picamera2()
@@ -13,13 +16,19 @@ picam2.configure("preview")
 picam2.start()
 
 # Load YOLOv8
-model_objects = YOLO("yolov8n.pt")
+# model_objects = YOLO("yolov8n.pt")
 model_pose  = YOLO("yolo11n-pose.pt")
+
+# Buzzer set
+BUZZER_PIN = 17  # GPIO17 (pin 11)
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(BUZZER_PIN, GPIO.OUT)
+
 
 def init_variables():
     # Variables
-    global flag, init_time, dicc_body_parts, person_detected
-    flag = True # primera vez que se activa el aviso de mover el robot
+    global init_time, dicc_body_parts, person_detected, horizont_point, laying_dow, sitting, pre_left_ankle, pre_rigth_ankle, buzzer
+    buzzer = True
     init_time = 0
     dicc_body_parts = {
         "nose": {"num": 0, "detected": False, "x": 0, "y": 0},
@@ -41,7 +50,11 @@ def init_variables():
         "right_ankle": {"num": 16, "detected": False, "x": 0, "y": 0},
     }
     person_detected = False
-    
+    horizont_point = 0.84
+    laying_dow = False
+    sitting = False
+    pre_left_ankle = 0
+    pre_rigth_ankle = 0
 
 def dictionary_body_parts():
     global dicc_body_parts, person_detected
@@ -54,8 +67,164 @@ def dictionary_body_parts():
         if lista[0]:
             person_detected = True
 
+# def detection_especial_object(object_to_detect):
+#     # Get the classes of detected objects
+#     detected_objects = results_objects[0].boxes.cls
+#     # Check if the object is detected
+#     return object_to_detect in detected_objects
 
-# ---------------------------------------
+def get_keypoint_position(keypoint_num=0, dic=True, axis='y'):
+    """ 
+    Keypoint reference:
+        0: nose          5: left_shoulder  10: right_wrist    15: left_ankle
+        1: left_eye      6: right_shoulder 11: left_hip       16: right_ankle
+        2: right_eye     7: left_elbow     12: right_hip
+        3: left_ear		 8: right_elbow    13: left_knee
+        4: right_ear	 9: left_wrist     14: right_knee
+    """
+    if not 0 <= keypoint_num <= 16:
+        raise ValueError("Keypoint number must be between 0 and 16")
+    if axis.lower() not in ['x', 'y']:
+        raise ValueError("Axis must be 'x' or 'y'")
+
+    if not results_pose or len(results_pose[0].keypoints.xyn) == 0 or len(results_pose[0].keypoints.xyn[0]) == 0:
+        return False, 0, 0
+    
+    # Get the keypoint data
+    keypoint = results_pose[0].keypoints.xyn[0][keypoint_num]
+
+    # confirm if it's detected
+    detected = True
+    if keypoint[1].item() == 0:
+        detected = False
+    
+    if dic:
+        return detected, keypoint[0].item(),  keypoint[1].item()
+    # Return x or y coordinate based on axis parameter
+    return [keypoint[0].item(), detected] if axis.lower() == 'x' else [keypoint[1].item(), detected]
+
+def point_detection():
+    global pre_left_ankle, pre_rigth_ankle
+    # El robot siempre verá el suelo a un punto fijo. Lo primero que el robot podrá ver serán los pies de una persona y cuanto más se aleje,
+    # podrá ir viendo mejor el cuerpo completo de la persona.
+    found_person = True
+    if not person_detected:
+        # MOVER EL ROBOT
+        found_person = searching_person()
+    if found_person:
+        if not face_detection():
+            if feet_detection():
+                # si una persona se agacha a recoger algo de valdas inferiores, o incluso del suelo, es posible que no se pueda reconocer la cara, pero estará en el mismo sitio (los pies) que el momento en que estaba estirado
+                fall_check() 
+            else:
+                # si los pies (tobillos) no están en el mismo sitio con un 10% de error es que la persona se ha movido del sitio y es posible que se haya acercado al robot y por eso, éste no puede detectar su cara
+                # MOVER EL ROBOT
+                move_robot_back()
+        else: # si el robot detecta la cara de la persona es porque está lo suficiente lejos para poder verlo o se ha caido
+            pre_left_ankle = 0
+            pre_rigth_ankle = 0
+            if dicc_body_parts["left_ankle"]["detected"]:
+                pre_left_ankle = dicc_body_parts["left_ankle"]["x"]
+            if dicc_body_parts["right_ankle"]["detected"]:
+                pre_rigth_ankle = dicc_body_parts["right_ankle"]["x"]
+            fall_check()
+    
+def face_detection():
+    return dicc_body_parts["nose"]["detected"] or dicc_body_parts["left_ear"]["detected"] or dicc_body_parts["right_ear"]["detected"]
+
+def feet_detection():
+    return dicc_body_parts["left_ankle"]["detected"] and dicc_body_parts["right_ankle"]["detected"] and ((pre_left_ankle + pre_rigth_ankle) / 2 < ((dicc_body_parts["right_ankle"]["x"] + dicc_body_parts["left_ankle"]["x"]) / 2) * 1.1 or (pre_left_ankle + pre_rigth_ankle) / 2 > ((dicc_body_parts["right_ankle"]["x"] + dicc_body_parts["left_ankle"]["x"]) / 2) * 0.9)
+
+def searching_person():
+    # Dar vuelta 360º detectando persona
+    rMove.spin()
+    init_time = time.time()
+    while init_time + 25 < time.time():
+        if take_the_frame():
+            dictionary_body_parts()
+            if person_detected:
+                rMove.stop()
+                return True
+    return False
+
+def move_robot_back(motive="points"):
+    # Move the robot back because the person is too much near the robot
+    # If there is obstacles -- > 
+    if not obstacles_back():
+        rMove.go_back()
+        while not face_detection() or not obstacles_back():
+            if take_the_frame():
+                dictionary_body_parts()
+        rMove.stop()
+        if not obstacles_back():
+            fall_check()   
+            return    
+    
+    while obstacles_left:
+        rMove.turn_left()
+        rMove.go_back()
+        #wait(5s)
+        rMove.stop()
+    while obstacles_rigth:
+        rMove.turn_rigth()
+        rMove.go_back()
+        #wait(5s)
+        rMove.stop()
+
+def obstacles_left():
+    return False
+
+def obstacles_rigth():
+    return False
+
+def obstacles_back():
+    return False
+
+def fall_check():
+    global cv2, fall_down, count_down
+    text = "TODO BIEN"
+    if not fall_down:
+        # Coger cadera más baja
+        fall_down = fall_detected()
+    else:
+        if count_down == 1000:
+            if (person_detected and fall_detected()) or not person_detected:
+                cv2.putText(annotated_frame, "PELIGROOOO", (90, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv2.LINE_AA)
+                cv2.putText(annotated_frame, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
+                cv2.imshow("Camera", annotated_frame)
+                buzzer_sound()
+            else:
+               fall_down = False 
+                
+    if fall_down:
+        buzzer_sound()
+
+def fall_detected():
+    hip_y = dicc_body_parts["left_hip"]['y']
+    if dicc_body_parts["left_hip"]['y'] > dicc_body_parts["right_hip"]['y']:
+        hip_y = dicc_body_parts["right_hip"]['y']
+    # Calcular distancia con punto_suelo
+    if hip_y > (horizont_point - 0.1 * horizont_point):
+        return True
+    # Coger hombros más baja
+    shoulder_y = dicc_body_parts["left_shoulder"]['y']
+    if dicc_body_parts["left_shoulder"]['y'] > dicc_body_parts["right_shoulder"]['y']:
+        shoulder_y = dicc_body_parts["right_shoulder"]['y']
+    # Calcular distancia con punto_suelo
+    print(shoulder_y)
+    if shoulder_y > (horizont_point - 0.1 * horizont_point):
+        return True
+    return False
+
+def buzzer_sound():
+    global buzzer
+    if buzzer:
+        GPIO.output(BUZZER_PIN, GPIO.HIGH)
+        buzzer = False
+    else:
+        GPIO.output(BUZZER_PIN, GPIO.LOW)
+        buzzer = True
+
 def print_in_frame(results):
     global cv2, annotated_frame, text_size, font, text_x, text_y
     # Output the visual detection data, we will draw this on our camera preview window
@@ -77,100 +246,18 @@ def print_in_frame(results):
     # Display the resulting frame
     cv2.imshow("Camera", annotated_frame)
 
-def detection_especial_object(object_to_detect):
-    # Get the classes of detected objects
-    detected_objects = results_objects[0].boxes.cls
-    # Check if the object is detected
-    return object_to_detect in detected_objects
+def take_the_frame():
+    frame = picam2.capture_array()
+    if frame is None:
+        return False
 
+    # Run YOLO model on the captured frame and store the results
+    # results_objects = model_objects(frame, imgsz = 160)
+    results_pose = model_pose(frame, imgsz = 160)
+    #print_in_frame(results_objects)
+    print_in_frame(results_pose)
 
-def get_keypoint_position(keypoint_num=0, dic=True, axis='y'):
-    """ 
-    Keypoint reference:
-        0: nose          5: left_shoulder  10: right_wrist    15: left_ankle
-        1: left_eye      6: right_shoulder 11: left_hip       16: right_ankle
-        2: right_eye     7: left_elbow     12: right_hip
-        3: left_ear		 8: right_elbow    13: left_knee
-        4: right_ear	 9: left_wrist     14: right_knee
-    """
-    if not 0 <= keypoint_num <= 16:
-        raise ValueError("Keypoint number must be between 0 and 16")
-    if axis.lower() not in ['x', 'y']:
-        raise ValueError("Axis must be 'x' or 'y'")
-
-    if not results_pose or len(results_pose[0].keypoints.xyn) == 0:
-        return False, 0, 0
-    
-    # Get the keypoint data
-    keypoint = results_pose[0].keypoints.xyn[0][keypoint_num]
-
-    # confirm if it's detected
-    detected = True
-    if keypoint[1].item() == 0:
-        detected = False
-    
-    if dic:
-        return detected, keypoint[0].item(),  keypoint[1].item()
-    # Return x or y coordinate based on axis parameter
-    return [keypoint[0].item(), detected] if axis.lower() == 'x' else [keypoint[1].item(), detected]
-
-def point_detection():
-    if not person_detected:
-        # MOVER EL ROBOT
-        move_robot()
-    else:
-        if not dicc_body_parts["nose"]["detected"]:
-            # MOVER EL ROBOT
-            move_robot()      
-        else:
-            if not dicc_body_parts["left_ankle"]["detected"]:
-                # MOVER EL ROBOT
-                move_robot()
-            else:
-                if not dicc_body_parts["right_ankle"]["detected"]:
-                    # MOVER EL ROBOT
-                    move_robot()
-                else:
-                    fall_check()
-                
-
-def move_robot():
-    global flag, init_time, cv2
-    if flag:
-        init_time = time.time()
-        flag = not flag
-        cv2.putText(annotated_frame, "MUEVE LA CÁMARA", (50, 50), 
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
-    else:
-        now_time = abs(init_time - time.time())
-        if now_time >= 10:
-            flag = not flag
-            # TODO
-            fall_check()
-        else:
-            cv2.putText(annotated_frame, "MUEVE LA CÁMARA", (50, 50), 
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
-            
-    cv2.imshow("Camera", annotated_frame)
-
-def fall_check():
-    global cv2
-    '''
-    opcion 1:
-        tumbada
-
-    opcion 2:
-        sentada
-
-    '''
-    mid_hip = abs(dicc_body_parts["left_hip"]['x'] - dicc_body_parts["right_hip"]['x']) / 2
-    mid_ankle = abs(dicc_body_parts["left_ankle"]['x'] - dicc_body_parts["right_ankle"]['x']) / 2
-
-    laying_dow = False
-    sitting = False
-    cv2.putText(annotated_frame, "BIENNN", (50, 50), 
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
-    cv2.imshow("Camera", annotated_frame)
+    return True
 
 def main():
     global results_objects, results_pose, frame, cv2
@@ -178,20 +265,13 @@ def main():
 
     while True:
         # Capture a frame from the camera
-        frame = picam2.capture_array()
-
-        if frame is None:
-            print("Error: No se capturó un frame.")
-
-        # Run YOLO model on the captured frame and store the results
-        results_objects = model_objects(frame, imgsz = 160)
-        results_pose = model_pose(frame, imgsz = 160)
-        print_in_frame(results_objects)
-        print_in_frame(results_pose)
-
-        # Get points
-        dictionary_body_parts()
-        point_detection()
+        if take_the_frame():
+            # Get points
+            dictionary_body_parts()
+            if not fall_down:
+                point_detection()
+            else:
+                fall_check()
 
         # Exit the program if q is pressed
         if cv2.waitKey(1) == ord("q"):
@@ -203,3 +283,5 @@ def main():
 # ---------------------------------------
 if __name__ == "__main__":
     main()
+
+
