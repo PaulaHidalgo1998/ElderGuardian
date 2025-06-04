@@ -8,6 +8,7 @@ import time
 from time import sleep
 
 from mobile import robotMovements as rMove
+from alerts import smsSender as sms
 
 # Set up the camera with Picam
 picam2 = Picamera2()
@@ -28,7 +29,7 @@ buzzer = OutputDevice(17)  # GPIO17
 def init_variables():
     # Variables
     global init_time, dicc_body_parts, person_detected, horizont_point, head_point, laying_dow
-    global sitting, pre_left_ankle, pre_rigth_ankle, buzzer_flag, fall_down, count_down
+    global sitting, pre_left_ankle, pre_rigth_ankle, buzzer_flag, fall_down, count_down, message_sent
     fall_down = False
     buzzer_flag = True
     init_time = 0
@@ -59,6 +60,7 @@ def init_variables():
     sitting = False
     pre_left_ankle = 0
     pre_rigth_ankle = 0
+    message_sent = False
 
 def dictionary_body_parts():
     global dicc_body_parts, person_detected
@@ -212,30 +214,31 @@ def obstacles_front():
 
 def fall_check():
     print("********* Fall_check")
-    global cv2, fall_down, count_down
+    global cv2, fall_down, count_down, message_sent
     text = "PERSONA CAIDA"
     if not fall_down:
         # Coger cadera más baja
         print("*** not fall down")
-        fall_down = fall_detected()
+        fall_down = fall_detection()
     else:
         print("*** Fall down")
         if count_down <= 1000:
-            if (person_detected and fall_detected()) or not person_detected:
+            if (person_detected and fall_detection()) or not person_detected:
                 cv2.putText(annotated_frame, "PELIGROOOO", (90, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv2.LINE_AA)
                 cv2.putText(annotated_frame, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
                 cv2.imshow("Camera", annotated_frame)
-                buzzer.on()
+                emergency_detected()
                 count_down +=1
             else:
                fall_down = False 
                count_down = 0
                buzzer.off()
+               message_sent = False
             
     if fall_down:
-        buzzer.on()
+        emergency_detected()
 
-def fall_detected():
+def fall_detection():
     hip_y = dicc_body_parts["left_hip"]['y']
     if dicc_body_parts["left_hip"]['y'] > dicc_body_parts["right_hip"]['y']:
         hip_y = dicc_body_parts["right_hip"]['y']
@@ -250,6 +253,13 @@ def fall_detected():
     if shoulder_y > (horizont_point - 0.1 * horizont_point):
         return True
     return False
+
+def emergency_detected():
+    global message_sent
+    buzzer.on()
+    if not message_sent:
+        sms.send_sms()
+        message_sent = True
 
 def print_in_frame(results):
     global cv2, annotated_frame, text_size, font, text_x, text_y
