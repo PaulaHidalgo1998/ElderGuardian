@@ -28,7 +28,7 @@ buzzer = OutputDevice(17)  # GPIO17
 
 def init_variables():
     # Variables
-    global init_time, dicc_body_parts, person_detected, horizont_point, head_point, laying_dow
+    global init_time, dicc_body_parts, person_detected, horizont_point, head_point, laying_dow, last_position_detected
     global sitting, pre_left_ankle, pre_rigth_ankle, buzzer_flag, fall_down, count_down, message_sent
     fall_down = False
     buzzer_flag = True
@@ -54,6 +54,7 @@ def init_variables():
         "right_ankle": {"num": 16, "detected": False, "x": 0, "y": 0},
     }
     person_detected = False
+    last_position_detected = False
     horizont_point = 0.84
     head_point = 0.1
     laying_dow = False
@@ -119,6 +120,7 @@ def point_detection():
         # MOVER EL ROBOT
         searching_person()
     else:
+        person_space()
         if not face_detection():
             print("Not face detection ******")
             # if feet_detection():
@@ -141,7 +143,18 @@ def point_detection():
                     pre_rigth_ankle = dicc_body_parts["right_ankle"]["x"]
             else:
                 move_robot_front()
-            
+
+def person_space():
+    global last_position_detected
+    # Suponiendo que una persona está practicamente recta cuando se mueve y no adopta formas extrañas con el cuerpo
+    # True = persona a la derecha
+    # False = persona a la izquierda
+    last_position_detected = False
+    md_shoulder = (dicc_body_parts['left_shoulder']['x'] + dicc_body_parts['right_shoulder']['x'])/2
+    md_hip = (dicc_body_parts['left_hip']['x'] + dicc_body_parts['right_hip']['x'])/2
+    if md_shoulder > 0.5 or md_hip > 0.5:
+        last_position_detected = True
+   
 def face_detection():
     return dicc_body_parts["nose"]["detected"] or dicc_body_parts["left_ear"]["detected"] or dicc_body_parts["right_ear"]["detected"] or dicc_body_parts["left_eye"]["detected"] or dicc_body_parts["right_eye"]["detected"]
 
@@ -152,10 +165,14 @@ def distance_detection():
     return dicc_body_parts["left_eye"]["y"] > head_point or dicc_body_parts["right_eye"]["y"] > head_point or dicc_body_parts["left_ear"]["y"] > head_point or dicc_body_parts["right_ear"]["y"] > head_point or dicc_body_parts["nose"]["y"] > head_point
 
 def searching_person():
+    global last_position_detected
     print("Searching person -----------")
     # Dar vuelta 360º detectando persona
-    rMove.spin()
-    sleep(0.5)
+    if last_position_detected:
+        rMove.spin_r()
+    else:
+        rMove.spin_l()
+    sleep(0.1)
     rMove.stop()
 
 def move_robot_back():
@@ -214,7 +231,7 @@ def obstacles_front():
 
 def fall_check():
     print("********* Fall_check")
-    global cv2, fall_down, count_down, message_sent
+    global cv2, fall_down, count_down, message_sent, last_position_detected
     text = "PERSONA CAIDA"
     if not fall_down:
         # Coger cadera más baja

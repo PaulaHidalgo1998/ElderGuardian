@@ -18,10 +18,15 @@ def stop():
     kit.continuous_servo[0].throttle = 0.0
     kit.continuous_servo[1].throttle = 0.0
 
-def spin():
-    print("spin...")
+def spin_r():
+    print("spin derecha...")
     kit.continuous_servo[0].throttle = 0.8
     kit.continuous_servo[1].throttle = 0.8
+
+def spin_l():
+    print("spin izquierda...")
+    kit.continuous_servo[0].throttle = -0.8
+    kit.continuous_servo[1].throttle = -0.8
 
 def turn_rigth():
     kit.servo[2].angle = 45
