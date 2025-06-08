@@ -29,11 +29,10 @@ buzzer = OutputDevice(17)  # GPIO17
 def init_variables():
     # Variables
     global init_time, dicc_body_parts, person_detected, horizont_point, head_point, laying_dow, last_position_detected
-    global sitting, pre_left_ankle, pre_rigth_ankle, buzzer_flag, fall_down, count_down, message_sent
+    global sitting, pre_left_ankle, pre_rigth_ankle, buzzer_flag, fall_down, message_sent
     fall_down = False
     buzzer_flag = True
     init_time = 0
-    count_down = 0
     dicc_body_parts = {
         "nose": {"num": 0, "detected": False, "x": 0, "y": 0},
         "left_eye": {"num": 1, "detected": False, "x": 0, "y": 0},
@@ -231,7 +230,7 @@ def obstacles_front():
 
 def fall_check():
     print("********* Fall_check")
-    global cv2, fall_down, count_down, message_sent, last_position_detected
+    global cv2, fall_down, message_sent, last_position_detected
     text = "PERSONA CAIDA"
     if not fall_down:
         # Coger cadera más baja
@@ -239,18 +238,15 @@ def fall_check():
         fall_down = fall_detection()
     else:
         print("*** Fall down")
-        if count_down <= 1000:
-            if (person_detected and fall_detection()) or not person_detected:
-                cv2.putText(annotated_frame, "PELIGROOOO", (90, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv2.LINE_AA)
-                cv2.putText(annotated_frame, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
-                cv2.imshow("Camera", annotated_frame)
-                emergency_detected()
-                count_down +=1
-            else:
-               fall_down = False 
-               count_down = 0
-               buzzer.off()
-               message_sent = False
+        if (person_detected and fall_detection()) or not person_detected:
+            cv2.putText(annotated_frame, "PELIGROOOO", (90, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv2.LINE_AA)
+            cv2.putText(annotated_frame, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
+            cv2.imshow("Camera", annotated_frame)
+            emergency_detected()
+        else:
+            fall_down = False 
+            buzzer.off()
+            message_sent = False
             
     if fall_down:
         emergency_detected()
