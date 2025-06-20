@@ -54,7 +54,7 @@ def init_variables():
     }
     person_detected = False
     last_position_detected = False
-    horizont_point = 0.84
+    horizont_point = 0.75
     head_point = 0.1
     laying_dow = False
     sitting = False
@@ -171,8 +171,9 @@ def searching_person():
         rMove.spin_r()
     else:
         rMove.spin_l()
-    sleep(0.1)
+    sleep(0.3)
     rMove.stop()
+    sleep(1)
 
 def move_robot_back():
     print("*** Move the robot ***")
@@ -322,7 +323,7 @@ def main():
                 point_detection()
             else:
                 fall_check()
-        time.sleep(1)
+        time.sleep(0.1)
         # Exit the program if q is pressed
         if cv2.waitKey(1) == ord("q"):
             break
