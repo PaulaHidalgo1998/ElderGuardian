@@ -42,8 +42,8 @@ This repository contains the source code and resources developed for my Master's
 
 ```bash
 # Clone the repository
-git clone https://github.com/your_username/your_repo_name.git
-cd your_repo_name
+git clone https://github.com/PaulaHidalgo1998/ElderGuardian.git
+cd ElderGuardian
 
 # Create and activate a virtual environment (recommended)
 python3 -m venv venv
