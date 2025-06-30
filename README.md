@@ -27,7 +27,7 @@ This repository contains the source code and resources developed for my Master's
 - `vision/`: Person and posture detection algorithms based on YOLOv11n-Pose.
 - `mobile/`: Script for controlling servomotors using the PCA9685 module.
 - `alerts/`: Code that creates and sends alert messages to the caregiver’s smartphone.  
-- `videos/`: Recordings and visual tests demonstrating the robot's functionality.
+- `videos/`: Recordings and visual tests demonstrating the robot's functionality. (Note: GitHub does not support video playback. Please download the files to view them).
 
 ---
 
