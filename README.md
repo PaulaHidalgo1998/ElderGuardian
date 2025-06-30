@@ -2,9 +2,9 @@
 Intelligent Robotic Device for Elderly Assistance and Monitoring
 
 **Author:** Paula Hidalgo Cerezo  
-**University:** Universitat Politècnica de Catalunya (UPC)
+**University:** Universitat Politècnica de Catalunya (UPC)  
 **Master's Program:** Master's degree in Automatic Control and Robotics  
-**Academic Year:** 2025 
+**Academic Year:** 2025  
 
 ---
 
